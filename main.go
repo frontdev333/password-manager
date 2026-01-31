@@ -13,8 +13,19 @@ import (
 	"time"
 )
 
-const ErrWeakPassword = "password length must be at least 8 characters"
-const ErrPasswordManagerNotInit = "password manager is not initialized"
+const (
+	ErrWeakPassword           = "password length must be at least 8 characters"
+	ErrPasswordManagerNotInit = "password manager is not initialized"
+	ErrPasswordNotFound       = "password not found"
+	statusSuccess             = "success"
+	statusError               = "error"
+	statusInfo                = "info"
+	statusWait                = "wait"
+	colorRed                  = "\033[31m"
+	colorGreen                = "\033[32m"
+	colorYellow               = "\033[33m"
+	colorReset                = "\033[0m"
+)
 
 type Password struct {
 	Name         string    `json:"name"`          // Название сервиса или сайта
@@ -96,7 +107,7 @@ func (pm *PasswordManager) GetPassword(name string) (Password, error) {
 
 	pass, ok := pm.passwords[name]
 	if !ok {
-		return Password{}, errors.New("password not found")
+		return Password{}, errors.New(ErrPasswordNotFound)
 	}
 	return pass, nil
 }
@@ -255,29 +266,132 @@ func (pm *PasswordManager) FindDuplicatePasswords() map[string][]string {
 	return duplicates
 }
 
-func main() {
-	pm := NewPasswordManager("test.dat")
-	pm.isInitialized = true // Для демонстрации
+func (pm *PasswordManager) UpdatePassword(name, newValue string) error {
+	if !pm.isInitialized {
+		return errors.New(ErrPasswordManagerNotInit)
+	}
 
-	// Добавляем пароли, некоторые с одинаковыми значениями
-	pm.SavePassword("github.com", "StrongPass123!", "dev")
-	pm.SavePassword("gmail.com", "UniquePass456!", "email")
-	pm.SavePassword("gitlab.com", "StrongPass123!", "dev") // дубликат
-	pm.SavePassword("netflix.com", "DifferentPass789!", "entertainment")
-	pm.SavePassword("amazon.com", "StrongPass123!", "shopping") // дубликат
+	pass, ok := pm.passwords[name]
+	if !ok {
+		return errors.New(ErrPasswordNotFound)
+	}
 
-	// Ищем дубликаты
-	duplicates := pm.FindDuplicatePasswords()
+	if err := pm.CheckPasswordStrength(newValue); err != nil {
+		return err
+	}
 
-	if len(duplicates) == 0 {
-		fmt.Println("Duplicates not found")
-	} else {
-		fmt.Printf("\nFound duplicates:\n")
-		for password, services := range duplicates {
-			fmt.Printf("\nPassword '%s' is used in the following services:\n", password)
-			for _, service := range services {
-				fmt.Printf("- %s\n", service)
-			}
+	pass.Value = newValue
+	pass.LastModified = time.Now()
+
+	pm.passwords[name] = pass
+
+	return nil
+}
+
+func (pm *PasswordManager) DeletePassword(name string) error {
+	if !pm.isInitialized {
+		return errors.New(ErrPasswordManagerNotInit)
+	}
+
+	if _, ok := pm.passwords[name]; !ok {
+		return errors.New(ErrPasswordNotFound)
+	}
+
+	delete(pm.passwords, name)
+	return nil
+}
+
+func (pm *PasswordManager) ListCategories() []string {
+	categories := make(map[string]bool)
+
+	for _, v := range pm.passwords {
+		if _, ok := categories[v.Category]; ok {
+			continue
+		}
+		categories[v.Category] = true
+	}
+	result := make([]string, len(categories))
+
+	i := 0
+	for k, _ := range categories {
+		result[i] = k
+		i++
+	}
+
+	return result
+}
+
+func (pm *PasswordManager) GetPasswordStats() map[string]interface{} {
+	stats := make(map[string]interface{})
+	stats["total_passwords"] = len(pm.passwords)
+
+	categories := pm.ListCategories()
+	distrByCat := make(map[string]int, len(categories))
+
+	var randPassName string
+	for _, v := range pm.passwords {
+		if randPassName == "" {
+			randPassName = v.Name
+		}
+		distrByCat[v.Category]++
+	}
+
+	stats["categories"] = distrByCat
+
+	oldest := pm.passwords[randPassName].CreatedAt
+	newest := oldest
+	for _, v := range pm.passwords {
+		if oldest.After(v.CreatedAt) {
+			oldest = v.CreatedAt
+		}
+		if newest.Before(v.CreatedAt) {
+			newest = v.CreatedAt
 		}
 	}
+
+	stats["oldest_password_date"] = oldest
+	stats["newest_password_date"] = newest
+
+	return stats
+}
+
+func clearScreen() {
+	fmt.Println("[Screen is cleaning]")
+	fmt.Print("\033[H\033[2J")
+}
+
+func waitForEnter() {
+	fmt.Println("Press Enter to continue...")
+}
+
+func showMessage(message string, status string) {
+	var color string
+	switch status {
+	case statusSuccess:
+		color = colorGreen
+	case statusError:
+		color = colorRed
+	case statusInfo:
+		color = colorYellow
+	default:
+		fmt.Println(message)
+		return
+	}
+	fmt.Printf("%s%s%s\n", color, message, colorReset)
+}
+
+func main() {
+	// Очищаем экран и показываем разные типы сообщений
+	clearScreen()
+	fmt.Println("=== Testing UI functions ===\n")
+
+	showMessage("Password saved successfully", statusSuccess)
+	showMessage("Invalid data format", statusError)
+	showMessage("Press Enter to continue", statusInfo)
+
+	fmt.Println("\nNow it's time to pause...")
+	waitForEnter()
+
+	clearScreen()
+	fmt.Println("Screen cleared!")
 }
