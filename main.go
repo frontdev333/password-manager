@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -103,7 +105,7 @@ func (pm *PasswordManager) GeneratePassword(length int) (string, error) {
 }
 
 func (pm *PasswordManager) SavePassword(name, value, category string) error {
-	if pm.isInitialized != true {
+	if !pm.isInitialized {
 		return errors.New(ErrPasswordManagerNotInit)
 	}
 
@@ -347,17 +349,19 @@ func (pm *PasswordManager) GetPasswordStats() map[string]interface{} {
 	categories := pm.ListCategories()
 	distrByCat := make(map[string]int, len(categories))
 
-	var randPassName string
+	var initialPasswordName string
 	for _, v := range pm.passwords {
-		if randPassName == "" {
-			randPassName = v.Name
+		if initialPasswordName == "" {
+			initialPasswordName = v.Name
 		}
 		distrByCat[v.Category]++
 	}
 
 	stats["categories"] = distrByCat
-
-	oldest := pm.passwords[randPassName].CreatedAt
+	if len(pm.passwords) == 0 {
+		return stats
+	}
+	oldest := pm.passwords[initialPasswordName].CreatedAt
 	newest := oldest
 	for _, v := range pm.passwords {
 		if oldest.After(v.CreatedAt) {
@@ -377,10 +381,6 @@ func (pm *PasswordManager) GetPasswordStats() map[string]interface{} {
 func clearScreen() {
 	fmt.Println("[Screen is cleaning]")
 	fmt.Print("\033[H\033[2J")
-}
-
-func waitForEnter() {
-	fmt.Println("Press Enter to continue...")
 }
 
 func showMessage(message string, status string) {
@@ -487,7 +487,7 @@ func ShowPasswordDetails(password Password) {
 	fmt.Println("Last Modified:", password.LastModified.Format("2006-01-02 15:04:05"))
 }
 
-func PressEnterToContinue() {
+func waitForEnter() {
 	fmt.Println("Press Enter to continue...")
 	bufio.NewReader(os.Stdin).ReadString('\n')
 }
@@ -508,7 +508,7 @@ func HandlePasswordGeneration(pm *PasswordManager) error {
 
 	fmt.Println("Generated password:", pass)
 	showMessage("✓ Success: Password generated successfully", statusSuccess)
-	PressEnterToContinue()
+	waitForEnter()
 	return nil
 
 }
@@ -539,7 +539,7 @@ func HandlePasswordAdd(pm *PasswordManager) error {
 	}
 
 	showMessage("✓ Success: Password saved successfully", statusSuccess)
-	PressEnterToContinue()
+	waitForEnter()
 	return nil
 }
 
@@ -554,7 +554,7 @@ func HandlePasswordSearch(pm *PasswordManager) error {
 	}
 
 	ShowPasswordDetails(pass)
-	PressEnterToContinue()
+	waitForEnter()
 	return nil
 }
 
@@ -573,28 +573,100 @@ func HandlePasswordUpdate(pm *PasswordManager) error {
 		return err
 	}
 	ShowPasswordDetails(updatedPass)
-	PressEnterToContinue()
+	waitForEnter()
 
+	return nil
+}
+
+func HandlePasswordDelete(pm *PasswordManager) error {
+	service := ReadUserInput("Enter the name of service")
+	if err := pm.DeletePassword(service); err != nil {
+		return err
+	}
+	showMessage("✓ Success: Password deleted successfully", statusSuccess)
+	return nil
+}
+
+func HandleExitAndSave(pm *PasswordManager) error {
+	clearScreen()
+	fmt.Println("=== Saving and Exiting ===")
+	err := pm.SaveToFile()
+	fmt.Println("Saving changes...")
+	if err != nil {
+		showMessage(fmt.Sprintf("✗ Error: %v", err), statusError)
+		return err
+	}
+	showMessage("✓ Success: Changes saved successfully!", statusSuccess)
+	showMessage("✓ Success: Goodbye!", statusSuccess)
 	return nil
 }
 
 func main() {
 	pm := NewPasswordManager("test.dat")
-	pm.SetMasterPassword("MasterPass123!")
-
-	fmt.Println("=== Testing password generation ===")
-	if err := HandlePasswordGeneration(pm); err != nil {
-		fmt.Printf("Error: %v\n", err)
+	fmt.Println("=== Password Manager Initialization ===")
+	fmt.Print("Enter master password: ")
+	pass, err := readPassword()
+	if err != nil {
+		showMessage(fmt.Sprintf("Error reading master password: %v", err), statusError)
+		return
 	}
 
-	fmt.Println("\n=== Testing password addition ===")
-	if err := HandlePasswordAdd(pm); err != nil {
-		fmt.Printf("Error: %v\n", err)
+	if err = pm.SetMasterPassword(pass); err != nil {
+		showMessage(fmt.Sprintf("Error setting master password: %v", err), statusError)
+		return
 	}
 
-	// Поиск пароля
-	fmt.Println("\n=== Testing password search ===")
-	if err := HandlePasswordSearch(pm); err != nil {
-		fmt.Printf("Error: %v\n", err)
+	if err = pm.LoadFromFile(); err != nil {
+		showMessage(fmt.Sprintf("Error loading data: %v", err), statusError)
+		return
 	}
+
+	showMessage("Password manager initialized successfully", statusSuccess)
+
+	waitForEnter()
+
+	for {
+		ShowMainMenu()
+		choice := ReadUserInput("Enter your choice: ")
+		switch choice {
+		case "1":
+			err = HandlePasswordGeneration(pm)
+		case "2":
+			err = HandlePasswordAdd(pm)
+		case "3":
+			err = HandlePasswordSearch(pm)
+		case "4":
+			PrintPasswordList(slices.Collect(maps.Values(pm.passwords)))
+		case "5":
+			err = HandlePasswordUpdate(pm)
+		case "6":
+			err = HandlePasswordDelete(pm)
+		case "7":
+			fmt.Println(pm.ListCategories())
+		case "8":
+			fmt.Println(pm.GetPasswordStats())
+		case "9":
+			fmt.Println(pm.FindDuplicatePasswords())
+		case "0":
+			clearScreen()
+			fmt.Println("=== Saving and Exiting ===")
+			err = HandleExitAndSave(pm)
+			if err != nil {
+				showMessage(fmt.Sprintf("Error during exit: %v", err), statusError)
+				waitForEnter()
+				return
+			}
+			showMessage("Goodbye!", statusSuccess)
+			return
+		default:
+			showMessage("Invalid choice. Please try again", statusError)
+			waitForEnter()
+		}
+
+		if err != nil {
+			showMessage(err.Error(), statusError)
+			waitForEnter()
+		}
+	}
+
 }
