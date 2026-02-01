@@ -49,18 +49,18 @@ var commands = []string{
 }
 
 type Password struct {
-	Name         string    `json:"name"`          // Название сервиса или сайта
-	Value        string    `json:"value"`         // Значение пароля
-	Category     string    `json:"category"`      // Категория для группировки (например: "social", "work", "finance")
-	CreatedAt    time.Time `json:"created_at"`    // Дата создания записи
-	LastModified time.Time `json:"last_modified"` // Дата последнего изменения
+	Name         string    `json:"name"`
+	Value        string    `json:"value"`
+	Category     string    `json:"category"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastModified time.Time `json:"last_modified"`
 }
 
 type PasswordManager struct {
-	passwords     map[string]Password `json:"passwords"` // Хранилище паролей, где ключ - название сервиса
-	masterKey     []byte              `json:"-"`         // Главный ключ шифрования, используется для защиты всех паролей
-	filePath      string              `json:"-"`         // Путь к файлу для хранения зашифрованных данных
-	isInitialized bool                `json:"-"`         // Флаг, показывающий установлен ли мастер-пароль
+	passwords     map[string]Password `json:"passwords"`
+	masterKey     []byte              `json:"-"`
+	filePath      string              `json:"-"`
+	isInitialized bool                `json:"-"`
 }
 
 func NewPassword(name, value, category string) Password {
