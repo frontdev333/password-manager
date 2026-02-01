@@ -487,7 +487,13 @@ func ShowPasswordDetails(password Password) {
 	fmt.Println("Last Modified:", password.LastModified.Format("2006-01-02 15:04:05"))
 }
 
+func PressEnterToContinue() {
+	fmt.Println("Press Enter to continue...")
+	bufio.NewReader(os.Stdin).ReadString('\n')
+}
+
 func HandlePasswordGeneration(pm *PasswordManager) error {
+	clearScreen()
 	fmt.Println("=== Password Generation ===")
 
 	length, err := strconv.Atoi(ReadUserInput("Enter password length (min 8): "))
@@ -502,11 +508,13 @@ func HandlePasswordGeneration(pm *PasswordManager) error {
 
 	fmt.Println("Generated password:", pass)
 	showMessage("✓ Success: Password generated successfully", statusSuccess)
+	PressEnterToContinue()
 	return nil
 
 }
 
 func HandlePasswordAdd(pm *PasswordManager) error {
+	clearScreen()
 	fmt.Println("=== Add New Password ===")
 	serviceName := ReadUserInput("Enter service name: ")
 
@@ -531,10 +539,12 @@ func HandlePasswordAdd(pm *PasswordManager) error {
 	}
 
 	showMessage("✓ Success: Password saved successfully", statusSuccess)
+	PressEnterToContinue()
 	return nil
 }
 
 func HandlePasswordSearch(pm *PasswordManager) error {
+	clearScreen()
 	fmt.Println("=== Search Password ===")
 	serviceName := ReadUserInput("Enter service name: ")
 
@@ -544,6 +554,27 @@ func HandlePasswordSearch(pm *PasswordManager) error {
 	}
 
 	ShowPasswordDetails(pass)
+	PressEnterToContinue()
+	return nil
+}
+
+func HandlePasswordUpdate(pm *PasswordManager) error {
+	service := ReadUserInput("Enter the name of service")
+	fmt.Print("Enter new password please: ")
+	pass, err := readPassword()
+	if err != nil {
+		return err
+	}
+	if err = pm.UpdatePassword(service, pass); err != nil {
+		return err
+	}
+	updatedPass, err := pm.GetPassword(service)
+	if err != nil {
+		return err
+	}
+	ShowPasswordDetails(updatedPass)
+	PressEnterToContinue()
+
 	return nil
 }
 
@@ -551,13 +582,11 @@ func main() {
 	pm := NewPasswordManager("test.dat")
 	pm.SetMasterPassword("MasterPass123!")
 
-	// Генерация пароля
 	fmt.Println("=== Testing password generation ===")
 	if err := HandlePasswordGeneration(pm); err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
 
-	// Добавление пароля
 	fmt.Println("\n=== Testing password addition ===")
 	if err := HandlePasswordAdd(pm); err != nil {
 		fmt.Printf("Error: %v\n", err)
