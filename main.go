@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -8,9 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -26,6 +32,19 @@ const (
 	colorYellow               = "\033[33m"
 	colorReset                = "\033[0m"
 )
+
+var commands = []string{
+	"Generate new password",
+	"Add new password",
+	"Get password",
+	"List all passwords",
+	"Update password",
+	"Delete password",
+	"List categories",
+	"Show password statistics",
+	"Find duplicate passwords",
+	"Exit",
+}
 
 type Password struct {
 	Name         string    `json:"name"`          // Название сервиса или сайта
@@ -380,18 +399,173 @@ func showMessage(message string, status string) {
 	fmt.Printf("%s%s%s\n", color, message, colorReset)
 }
 
+func ReadUserInput(prompt string) string {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print(prompt)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		slog.Error(err.Error())
+		return ""
+	}
+
+	return strings.TrimSpace(input)
+}
+
+func readPassword() (string, error) {
+	fmt.Print("[hidden input]")
+	bytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(bytes)), nil
+}
+
+func ShowMainMenu() {
+	var cmds strings.Builder
+	clearScreen()
+	title := "Password Manager\n"
+	separationRow := "==========================================\n"
+	padding := (utf8.RuneCountInString(separationRow) - utf8.RuneCountInString(title) - 2) / 2
+
+	cmds.WriteString(separationRow)
+	cmds.WriteString(strings.Repeat(" ", padding))
+	cmds.WriteString(title)
+	cmds.WriteString(separationRow)
+
+	fmt.Println(cmds.String())
+
+	cmds.Reset()
+	for i, v := range commands {
+		if i < 9 {
+			i++
+		} else {
+			i = 0
+		}
+		cmds.WriteString(fmt.Sprintf("%d. %s\n", i, v))
+	}
+	cmds.WriteString(separationRow)
+
+	fmt.Println(cmds.String())
+
+}
+
+func PrintPasswordList(passwords []Password) {
+	width, _, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+	titles := []string{"Name", "Category", "Created", "Last Modified"}
+
+	lenOfTitles := len(strings.Join(titles, ""))
+	padding := (width - lenOfTitles) / len(titles)
+
+	var strBldr strings.Builder
+
+	for _, v := range titles {
+		strBldr.WriteString(fmt.Sprintf("%-*s", padding, v))
+	}
+	lenOfTitlesStr := utf8.RuneCountInString(strBldr.String())
+	separationLine := strings.Repeat("-", lenOfTitlesStr)
+	strBldr.WriteString(fmt.Sprintf("\n%s", separationLine))
+
+	for _, v := range passwords {
+		created := v.CreatedAt.Format("02.01.2006")
+		modified := v.LastModified.Format("02.01.2006")
+		strBldr.WriteString(fmt.Sprintf("\n%-*s%-*s%-*s%-*s", padding, v.Name, padding, v.Category, padding, created, padding, modified))
+	}
+
+	fmt.Println(strBldr.String())
+}
+
+func ShowPasswordDetails(password Password) {
+	fmt.Println("Service:", password.Name)
+	fmt.Println("Category:", password.Category)
+	fmt.Println("Password:", password.Value)
+	fmt.Println("Created:", password.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Println("Last Modified:", password.LastModified.Format("2006-01-02 15:04:05"))
+}
+
+func HandlePasswordGeneration(pm *PasswordManager) error {
+	fmt.Println("=== Password Generation ===")
+
+	length, err := strconv.Atoi(ReadUserInput("Enter password length (min 8): "))
+	if err != nil {
+		return err
+	}
+
+	pass, err := pm.GeneratePassword(length)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Generated password:", pass)
+	showMessage("✓ Success: Password generated successfully", statusSuccess)
+	return nil
+
+}
+
+func HandlePasswordAdd(pm *PasswordManager) error {
+	fmt.Println("=== Add New Password ===")
+	serviceName := ReadUserInput("Enter service name: ")
+
+	fmt.Print("Enter password (or press Enter to generate): ")
+	pass, err := readPassword()
+	if err != nil {
+		return err
+	}
+
+	if pass == "" {
+		pass, err = pm.GeneratePassword(8)
+		if err != nil {
+			return err
+		}
+		showMessage(fmt.Sprintf("\n→ Info: Generated password: %s", pass), statusInfo)
+	}
+
+	category := ReadUserInput("\nEnter category: ")
+
+	if err = pm.SavePassword(serviceName, pass, category); err != nil {
+		return err
+	}
+
+	showMessage("✓ Success: Password saved successfully", statusSuccess)
+	return nil
+}
+
+func HandlePasswordSearch(pm *PasswordManager) error {
+	fmt.Println("=== Search Password ===")
+	serviceName := ReadUserInput("Enter service name: ")
+
+	pass, err := pm.GetPassword(serviceName)
+	if err != nil {
+		return err
+	}
+
+	ShowPasswordDetails(pass)
+	return nil
+}
+
 func main() {
-	// Очищаем экран и показываем разные типы сообщений
-	clearScreen()
-	fmt.Println("=== Testing UI functions ===\n")
+	pm := NewPasswordManager("test.dat")
+	pm.SetMasterPassword("MasterPass123!")
 
-	showMessage("Password saved successfully", statusSuccess)
-	showMessage("Invalid data format", statusError)
-	showMessage("Press Enter to continue", statusInfo)
+	// Генерация пароля
+	fmt.Println("=== Testing password generation ===")
+	if err := HandlePasswordGeneration(pm); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
 
-	fmt.Println("\nNow it's time to pause...")
-	waitForEnter()
+	// Добавление пароля
+	fmt.Println("\n=== Testing password addition ===")
+	if err := HandlePasswordAdd(pm); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
 
-	clearScreen()
-	fmt.Println("Screen cleared!")
+	// Поиск пароля
+	fmt.Println("\n=== Testing password search ===")
+	if err := HandlePasswordSearch(pm); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
 }
