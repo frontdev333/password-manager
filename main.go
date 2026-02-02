@@ -200,8 +200,14 @@ func (pm *PasswordManager) SaveToFile() error {
 }
 
 func (pm *PasswordManager) LoadFromFile() error {
+	if !pm.isInitialized {
+		return errors.New(ErrPasswordManagerNotInit)
+	}
 	file, err := os.Open(pm.filePath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
 	defer file.Close()
